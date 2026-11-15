@@ -8,12 +8,16 @@ Team Epsilon. Labels every October payment as legit or one of 11 fraud types (ma
 3. Run `bash reproduce.sh` (Git Bash on Windows). It rebuilds every uploaded file in `submissions/`.
    About 2 hours on a 6-core laptop CPU; no GPU needed.
 
-## Final upload: sub27 (public 0.5478)
-Built by the last part of `reproduce.sh`:
+## Final upload: sub35 (public 0.5481)
+sub35 = sub27 (public 0.5478) with the block spread widened to one day and each test phone placed in its most
+probable block. Built by `reproduce.sh` (sub27 first, then the sub35 lines):
 ```
 LABELS=preds/labels_c1.npy python device_blocks.py --base flag_c1_thr
 LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk_sp --spread 360
 LABELS=preds/labels_c1.npy python submit.py blk_sp --name sub27
+LABELS=preds/labels_c1.npy python device_blocks.py --base flag_c1_thr --posterior --out _post
+LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk1440_post --spread 1440 --blocks _post
+LABELS=preds/labels_c1.npy python submit.py blk1440_post --name sub35
 ```
 - Base: `flag_c1_thr` (sub4, public 0.5060): LightGBM on row + conn + ring + flag features, cleaned labels, biases
   tuned on cleaned labels.
@@ -22,7 +26,7 @@ LABELS=preds/labels_c1.npy python submit.py blk_sp --name sub27
   (the base model's calls, rows per phone, id gaps). A row on a block phone takes the block's type.
 - **Spread** (`apply_blocks.py --spread 360`): rows the base model already calls fraud, of a look-alike type, sharing
   the sender or receiver with a block row within 6 hours, take the block's type.
-- Validation (test-like labels, month folds): 0.5219 -> 0.5500, better in all three months.
+- Validation (test-like labels, month folds): sub4 0.5219 -> sub27 0.5500 -> sub35 0.5505.
 
 `WORKLOG.md` lists every experiment and its result.
 
