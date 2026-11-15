@@ -365,3 +365,12 @@ Final push (15 Nov, ~7:15 AM), no gain:
 - Collusion (public F1 0.26): the 109 test calls match train's true collusion profile (89% round-500 amounts, 6 rows
   per sender-merchant pair, 7 merchants carry 95 rows, none newly onboarded or clipped; 13 are block rows). No
   impostor group to relabel; the low public score is a small sample (few merchants) or more quiet collusion.
+
+Final hour (15 Nov, 9:40-9:45 AM):
+- sub35 public 0.5481: the best upload and the final file. Code pushed to GitHub at 9:39 AM; rebuilding sub27 and
+  sub35 from the pushed scripts gives the uploaded files exactly (0 rows differ).
+- receiver_rule.py: block types along the same receiver for 7 days (collusion, bot, mule; seeds are block rows the
+  base model calls fraud). Train t1 0.5505 -> 0.5508, better in all three months, 16 rows (13 now right, 3 were
+  right). sub36 = sub35 + this rule: 1 test row (layering -> mule).
+- Same idea for other types, for senders, or over 35-100 days: wrong more often than right (accounts are shared
+  between fraud types).

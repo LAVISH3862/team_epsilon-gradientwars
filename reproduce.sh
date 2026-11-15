@@ -105,3 +105,7 @@ LABELS=preds/labels_c1.npy python submit.py blk_sp1440 --name sub34
 
 # sub35: sub27 + 1-day block spread + per-phone block edges (blk1440_post is built in the sub31 block above)
 LABELS=preds/labels_c1.npy python submit.py blk1440_post --name sub35
+
+# sub36: sub35 + block types along the same receiver for a week (collusion, bot, mule); 1 test row changes
+LABELS=preds/labels_c1.npy python receiver_rule.py --base blk1440_post --blocks _post --tag blk1440_post_rcv
+LABELS=preds/labels_c1.npy python submit.py blk1440_post_rcv --name sub36

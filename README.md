@@ -19,6 +19,7 @@ LABELS=preds/labels_c1.npy python device_blocks.py --base flag_c1_thr --posterio
 LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk1440_post --spread 1440 --blocks _post
 LABELS=preds/labels_c1.npy python submit.py blk1440_post --name sub35
 ```
+sub36 = sub35 plus `receiver_rule.py` (block types along the same receiver for a week; 1 test row changes).
 - Base: `flag_c1_thr` (sub4, public 0.5060): LightGBM on row + conn + ring + flag features, cleaned labels, biases
   tuned on cleaned labels.
 - **Extra-phone blocks** (`device_blocks.py`): extra phones (device number >= 420000) are numbered one fraud type at
