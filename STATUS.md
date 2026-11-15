@@ -62,3 +62,23 @@
 **15 Nov, before 9:00 AM**
 - `reproduce.sh` complete, code link submitted.
 - No look-alike uploads late: the final pick is automatically the best public upload.
+
+## Update, 14 Nov 9:05 AM
+**Board:** sub4 = 0.5060 is still the best. Since then: sub14 0.5012, sub15 0.4947, sub25 0.4924 (all lower).
+**Probes, summed F1 on the public test vs validation:** takeover + SIM swap 0.877 (0.812), bot 0.352 (0.310),
+refund 0.534 (0.615), collusion 0.260 (0.438), mule + layering 1.031 (1.037), phishing + cashback + loan 1.477
+(1.365), qr_swap 0.561 (0.547). Validation with October's bot volume predicts the board (0.509 vs 0.506).
+
+**Ruled out since the last update (no gain, or lower on the board):**
+- Training recipe: no balancing, no cap, no cleaning, unweighted, naive pipeline: all within 200 rows of sub4.
+- Types: corrected wrong-type labels (sub15), problem-statement type rules (sub21, 52 rows), round-number purchases
+  moved to collusion (sub25). The test labels types the way train does.
+- The "quiet" fraud labels: random with respect to ids, time, digits, the graph (1-hop), account and merchant
+  cohorts, and same-type rings. No balance trail (balances are drawn fresh per row).
+- Borderline rows: only 49 October rows called legit have fraud probability >= 0.25.
+- Targeted guesses: round-number merchant payments called legit are collusion in under 0.3% of cases
+  (break-even is ~22%).
+- New accounts or merchants in October: none. sample_submission is all legit.
+- New features: account label history (+0.0017, 63 test rows), local graph components / two-hop (worse),
+  merchant locality, IP score rank.
+**Running:** global SVD graph embeddings and two larger models on Kaggle.

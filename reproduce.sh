@@ -72,3 +72,36 @@ LABELS=preds/labels_c2.npy python submit.py flag_c2_thr --name sub13
 LABELS=preds/labels_c3.npy python train_gbm.py --tag k_flag_c3 --feats row+conn+ring+flag --drop qr_vpa_mismatch --balanced --cap 150000 --seeds 1
 LABELS=preds/labels_c3.npy python postprocess.py k_flag_c3 --tag k_flag_c3_thr --grid 8 --step 0.25
 LABELS=preds/labels_c3.npy python submit.py k_flag_c3_thr --name sub15
+
+# sub27 / sub28: extra-phone id blocks (fraud phones are numbered one fraud type at a time) on top of sub4
+LABELS=preds/labels_c1.npy python device_blocks.py --base flag_c1_thr
+LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk_sp --spread 360
+LABELS=preds/labels_c1.npy python submit.py blk_sp --name sub27
+LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk
+LABELS=preds/labels_c1.npy python submit.py blk --name sub28
+# sub29: sub27 + takeover / SIM swap from the drain ratio (0.35 vs 0.25 per step)
+LABELS=preds/labels_c1.npy python drain_rule.py --base blk_sp --tag blk_dr
+LABELS=preds/labels_c1.npy python submit.py blk_dr --name sub29
+
+# sub30 (kept, not uploaded): sub27 with the test block edges set by the posterior (forward-backward) assignment
+LABELS=preds/labels_c1.npy python device_blocks.py --base flag_c1_thr --posterior --out _post
+LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk_sp_post --spread 360 --blocks _post
+LABELS=preds/labels_c1.npy python submit.py blk_sp_post --name sub30
+
+# sub31 / sub32 (probes): 1-day block spread, per-phone block edges, phishing-family victim history; sub32 adds the drain rule
+LABELS=preds/labels_c1.npy python device_blocks.py --base flag_c1_thr --posterior --out _post
+LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk1440_post --spread 1440 --blocks _post
+LABELS=preds/labels_c1.npy python history_rule.py --base blk1440_post --tag blk1440_post_hist
+LABELS=preds/labels_c1.npy python submit.py blk1440_post_hist --name sub31
+LABELS=preds/labels_c1.npy python drain_rule.py --base blk1440_post --tag blk1440_post_dr
+LABELS=preds/labels_c1.npy python history_rule.py --base blk1440_post_dr --tag blk1440_post_dr_hist
+LABELS=preds/labels_c1.npy python submit.py blk1440_post_dr_hist --name sub32
+
+# sub33 / sub34 (single-rule probes on top of sub27): victim history only; 1-day block spread only
+LABELS=preds/labels_c1.npy python history_rule.py --base blk_sp --tag blk_sp_hist
+LABELS=preds/labels_c1.npy python submit.py blk_sp_hist --name sub33
+LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk_sp1440 --spread 1440
+LABELS=preds/labels_c1.npy python submit.py blk_sp1440 --name sub34
+
+# sub35: sub27 + 1-day block spread + per-phone block edges (blk1440_post is built in the sub31 block above)
+LABELS=preds/labels_c1.npy python submit.py blk1440_post --name sub35

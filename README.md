@@ -8,6 +8,24 @@ Team Epsilon. Labels every October payment as legit or one of 11 fraud types (ma
 3. Run `bash reproduce.sh` (Git Bash on Windows). It rebuilds every uploaded file in `submissions/`.
    About 2 hours on a 6-core laptop CPU; no GPU needed.
 
+## Final upload: sub27 (public 0.5478)
+Built by the last part of `reproduce.sh`:
+```
+LABELS=preds/labels_c1.npy python device_blocks.py --base flag_c1_thr
+LABELS=preds/labels_c1.npy python apply_blocks.py --base flag_c1_thr --tag blk_sp --spread 360
+LABELS=preds/labels_c1.npy python submit.py blk_sp --name sub27
+```
+- Base: `flag_c1_thr` (sub4, public 0.5060): LightGBM on row + conn + ring + flag features, cleaned labels, biases
+  tuned on cleaned labels.
+- **Extra-phone blocks** (`device_blocks.py`): extra phones (device number >= 420000) are numbered one fraud type at
+  a time. Train block edges come from the labels; test edges come from an ordered segmentation of the test phones
+  (the base model's calls, rows per phone, id gaps). A row on a block phone takes the block's type.
+- **Spread** (`apply_blocks.py --spread 360`): rows the base model already calls fraud, of a look-alike type, sharing
+  the sender or receiver with a block row within 6 hours, take the block's type.
+- Validation (test-like labels, month folds): 0.5219 -> 0.5500, better in all three months.
+
+`WORKLOG.md` lists every experiment and its result.
+
 ## Approach
 - **Folds by month** (July, August, September): test is the next month and a ring's rows sit close in time.
 - **Features** (`features.py`), built over train + test rows together, never from labels:

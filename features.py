@@ -71,7 +71,10 @@ def block_row(d):
 
 
 BIG = 1 << 25   # more than the data's time span in seconds plus the widest window, so keys never overlap
-ALL = BIG // 4  # a window that covers everything
+# "All-time" windows. The data spans 131.6 days, so BIG // 4 (97 days) is a little short; ALL_DAYS=140 covers it all.
+# sub1-sub26 were built with the default, so it stays the default for reproduce.sh.
+import os as _os
+ALL = int(_os.environ['ALL_DAYS']) * 86400 if _os.environ.get('ALL_DAYS') else BIG // 4
 M, H, D = 60, 3600, 86400
 
 
@@ -437,7 +440,121 @@ def block_ip(d):
     return X
 
 
-BLOCKS = {'row': block_row, 'conn': block_conn, 'ring': block_ring, 'flag': block_flag, 'extra': block_extra, 'ip': block_ip}
+def block_graph(d):
+    """Two-hop and component structure. Per day (and per 3-day bucket): accounts are linked by person-to-person payments
+    and by sharing a phone; every row gets the size and makeup of the component it belongs to. Two-hop: how many other
+    people a row's receiver's senders paid that day, and how many other senders a row's sender's receivers had.
+    Merchant side: is the merchant in the sender's home city, and how local a merchant's customers are."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    snd, rcv, dev, ts = ids(d)
+    n = len(d)
+    p2p = d.receiver_type.values == 'P2P'
+    ac = comp.load_accounts().set_index('account_id')
+    mr = comp.load_merchants().set_index('merchant_id')
+    X = pd.DataFrame(index=d.index)
+    for name, span in (('1d', D), ('3d', 3 * D)):
+        b = ts // span
+        # nodes: (account, bucket) and (phone, bucket); edges: sender-receiver for P2P rows, sender-phone for every row
+        a_s = pd.factorize(pd.Series(snd) * 100000 + b)[0]
+        node_acc = pd.Series(np.r_[snd, rcv[p2p]] * 100000 + np.r_[b, b[p2p]])
+        acc_codes, acc_uni = pd.factorize(node_acc)
+        s_node = acc_codes[:n]; r_node = acc_codes[n:]
+        dv_codes = pd.factorize(pd.Series(dev) * 100000 + b)[0] + len(acc_uni)
+        N = len(acc_uni) + dv_codes.max() + 1
+        rows = np.r_[s_node[p2p], s_node]; cols = np.r_[r_node, dv_codes]
+        g = coo_matrix((np.ones(len(rows), np.int8), (rows, cols)), shape=(N, N))
+        _, lab = connected_components(g, directed=False)
+        comp_id = lab[s_node]
+        cs = pd.DataFrame({'c': comp_id, 'snd': snd, 'rcv': rcv, 'dev': dev, 'amt': d.amount.values, 'p2p': p2p,
+                           'new': d.new_payee.values, 'whole': (d.amount.values == np.round(d.amount.values))})
+        gr = cs.groupby('c')
+        X[f'g{name}_rows'] = gr.snd.transform('size').values
+        X[f'g{name}_accounts'] = gr.snd.transform('nunique').values
+        X[f'g{name}_receivers'] = gr.rcv.transform('nunique').values
+        X[f'g{name}_phones'] = gr.dev.transform('nunique').values
+        X[f'g{name}_p2p_share'] = gr.p2p.transform('mean').values
+        X[f'g{name}_new_share'] = gr.new.transform('mean').values
+        X[f'g{name}_whole_share'] = gr.whole.transform('mean').values
+        X[f'g{name}_amt_sum'] = gr.amt.transform('sum').values
+        X[f'g{name}_phones_per_acc'] = X[f'g{name}_phones'] / X[f'g{name}_accounts']
+    # two-hop, per day
+    day = ts // D
+    t = pd.DataFrame({'s': snd, 'r': rcv, 'day': day})
+    s_deg = t.groupby(['s', 'day']).r.transform('nunique').values          # receivers this sender paid that day
+    r_deg = t.groupby(['r', 'day']).s.transform('nunique').values          # senders this receiver had that day
+    t['s_deg'], t['r_deg'] = s_deg, r_deg
+    X['h2_rcv_senders_outdeg_mean'] = t.groupby(['r', 'day']).s_deg.transform('mean').values
+    X['h2_rcv_senders_outdeg_max'] = t.groupby(['r', 'day']).s_deg.transform('max').values
+    X['h2_snd_receivers_indeg_mean'] = t.groupby(['s', 'day']).r_deg.transform('mean').values
+    X['h2_snd_receivers_indeg_max'] = t.groupby(['s', 'day']).r_deg.transform('max').values
+    # merchant side
+    home = ac.home_city.reindex(d.sender_id.values).values
+    mcity = mr.city.reindex(d.receiver_id.values).values
+    X['m_in_home_city'] = np.where(pd.isna(mcity), np.nan, (mcity == home).astype(float))
+    loc = pd.Series(np.where(pd.isna(mcity), np.nan, (mcity == d.device_city.values).astype(float)))
+    X['m_local_share'] = loc.groupby(d.receiver_id.values).transform('mean').values
+    X['m_home_share'] = pd.Series(X.m_in_home_city.values).groupby(d.receiver_id.values).transform('mean').values
+    return X.replace([np.inf, -np.inf], np.nan).astype(np.float32)
+
+
+def block_svd(d):
+    """Global graph position: truncated SVD of the whole sender x receiver payment graph and of the account x phone
+    graph (train + test, all months, no labels). Rows get 12-dimensional sender and receiver embeddings and how close
+    the two are; accounts in the same community land near each other even when they never paid each other."""
+    from scipy.sparse import coo_matrix
+    from sklearn.decomposition import TruncatedSVD
+    from sklearn.preprocessing import normalize
+    s_code, s_uni = pd.factorize(d.sender_id)
+    r_code, r_uni = pd.factorize(d.receiver_id)
+    dv_code, dv_uni = pd.factorize(d.device_id)
+    A = coo_matrix((np.log1p(np.ones(len(d))), (s_code, r_code)), shape=(len(s_uni), len(r_uni))).tocsr()
+    A.data = np.log1p(A.data)
+    svd = TruncatedSVD(12, random_state=0).fit(A)
+    S_emb = normalize(svd.transform(A))                                  # senders
+    R_emb = normalize(svd.components_.T * svd.singular_values_)          # receivers
+    B = coo_matrix((np.ones(len(d)), (s_code, dv_code)), shape=(len(s_uni), len(dv_uni))).tocsr()
+    B.data = np.log1p(B.data)
+    svd2 = TruncatedSVD(8, random_state=0).fit(B)
+    SD = normalize(svd2.transform(B))
+    X = pd.DataFrame(index=d.index)
+    se, re_ = S_emb[s_code], R_emb[r_code]
+    for k in range(12):
+        X[f'svd_s{k}'] = se[:, k]
+        X[f'svd_r{k}'] = re_[:, k]
+    X['svd_sr_cos'] = (se * re_).sum(1)
+    for k in range(8):
+        X[f'svd_sd{k}'] = SD[s_code][:, k]
+    return X.astype(np.float32)
+
+
+def block_spike(d):
+    """How unusual this month is for the account / phone / merchant: its rows, partners and new payees this month
+    against its average over the other months, with every month scaled to the same total volume (October has half the
+    rows). An account that is quiet for three months and busy in one stands out, whichever month that is."""
+    month = np.minimum(d.t.dt.month.values, 10)                         # early-November rows are October's tail
+    tot = pd.Series(month).value_counts()
+    scale = (tot.mean() / tot).reindex(month).values                    # volume per month, equalised
+    X = pd.DataFrame(index=d.index)
+    for nm, key in (('s', d.sender_id.values), ('r', d.receiver_id.values), ('p', d.device_id.values)):
+        f = pd.DataFrame({'k': key, 'm': month, 'w': scale, 'other': d.receiver_id.values if nm != 'r' else d.sender_id.values,
+                          'new': d.new_payee.values * scale})
+        per = f.groupby(['k', 'm']).agg(n=('w', 'sum'), uniq=('other', 'nunique'), new=('new', 'sum'))
+        allk = per.groupby(level=0).agg(n=('n', 'sum'), uniq=('uniq', 'sum'), new=('new', 'sum'), months=('n', 'size'))
+        here = per.reindex(pd.MultiIndex.from_arrays([key, month])).values
+        tot_k = allk.reindex(key)
+        n_other_months = max(len(tot) - 1, 1)
+        other = (tot_k[['n', 'uniq', 'new']].values - here) / n_other_months
+        X[f'{nm}_month_n'] = here[:, 0]
+        X[f'{nm}_spike_n'] = here[:, 0] / (other[:, 0] + 0.5)
+        X[f'{nm}_spike_uniq'] = here[:, 1] / (other[:, 1] + 0.5)
+        X[f'{nm}_spike_new'] = here[:, 2] / (other[:, 2] + 0.5)
+        X[f'{nm}_months_active'] = tot_k['months'].values
+    return X.replace([np.inf, -np.inf], np.nan).astype(np.float32)
+
+
+BLOCKS = {'row': block_row, 'conn': block_conn, 'ring': block_ring, 'flag': block_flag, 'extra': block_extra, 'ip': block_ip,
+          'graph': block_graph, 'svd': block_svd, 'spike': block_spike}
 
 if __name__ == '__main__':
     names = sys.argv[1:] or list(BLOCKS)

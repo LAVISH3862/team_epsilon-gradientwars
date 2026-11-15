@@ -31,6 +31,7 @@ ap.add_argument('--refit', action='store_true', help='test predictions from mode
                 'ones included (out-of-fold and held-out scores still come from the fold models)')
 ap.add_argument('--feats', default='', help='feature blocks joined by + (comp.BLOCKS), e.g. row+recv')
 ap.add_argument('--seed0', type=int, default=0, help='added to every model seed: other seeds than an earlier run of the same recipe')
+ap.add_argument('--cat', default='', help='feature columns to treat as categories (LightGBM native), joined by commas')
 ap.add_argument('--drop', default='', help='feature columns to leave out, joined by commas')
 ap.add_argument('--cap', type=int, default=0, help='at most this many training rows per class, redrawn per seed '
                 '(a 96%% majority class trains 10x faster; --balanced weights and postprocess.py undo the prior shift)')
@@ -41,6 +42,11 @@ if a.feats:
 
 X = pd.DataFrame(index=range(len(train_sim()))) if a.no_features else comp.features(train_sim()).reset_index(drop=True)
 Xt = pd.DataFrame(index=range(len(test()))) if a.no_features else comp.features(test()).reset_index(drop=True)
+if a.cat:
+    for col in a.cat.split(','):
+        if col in X:
+            cats = sorted(set(X[col].dropna().unique()) | set(Xt[col].dropna().unique()))
+            X[col] = pd.Categorical(X[col], categories=cats); Xt[col] = pd.Categorical(Xt[col], categories=cats)
 if a.drop:
     X, Xt = (Z.drop(columns=[c for c in a.drop.split(',') if c in Z]) for Z in (X, Xt))
 for t in filter(None, a.others.split('+')):
